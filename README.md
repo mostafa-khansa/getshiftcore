@@ -69,6 +69,12 @@ Core domain definitions (Roles, Subscription Plans, Request/Attendance Statuses)
 ### 4. Zero-Leak Shared Types Package
 The `shared-types` workspace package exports pure type definitions and domain constants without dragging backend-specific (Prisma/NestJS) or frontend-specific (DOM/React) dependencies into the common package.
 
+### 5. Native UUID primary keys
+Primary keys are PostgreSQL `uuid` columns with `gen_random_uuid()` as the database default. Postgres validates the value and generates it for every insert, including raw SQL. Foreign keys such as `tenantId` use `@db.Uuid` and have no default, because they must reference a row that already exists.
+
+### 6. Timezone-aware timestamps
+Every `DateTime` is `timestamptz`. The database stores the instant in UTC, so 18:00 in Berlin and 12:00 in New York remain one moment. Shift, attendance, and vacation times depend on that.
+
 ---
 
 ## 📊 Domain Core Data Types
