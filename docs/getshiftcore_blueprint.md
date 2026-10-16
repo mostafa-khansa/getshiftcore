@@ -12,11 +12,12 @@
 * **Monorepo Structure:**
   * `apps/api` — NestJS backend
   * `apps/web` — React 19 frontend
+  * `packages/database` — Prisma schema, migrations, and the generated client
   * `packages/shared-types` — Shared TypeScript DTOs and interfaces
 
 ### 2. Backend Framework (`apps/api`)
 * **NestJS (TypeScript):** Enterprise-grade modular monolith architecture.
-* **Prisma ORM:** Strict type-safe queries, migration control, and transactional guarantees.
+* **Prisma ORM:** Schema, migrations, and the generated client live in `packages/database`. The API imports that client.
 * **Authentication:** JWT Access Tokens (In-Memory on Frontend) + Long-lived Refresh Tokens (HTTP-Only, Secure, SameSite Cookies).
 
 ### 3. Frontend Application (`apps/web`)
@@ -26,8 +27,8 @@
 - **HTTP Client:** Axios configured with `withCredentials: true` and an automatic silent 401 token refresh interceptor.
 
 ### 4. Database & Security
-* **PostgreSQL 15+:** Strict transactional compliance, indexed foreign keys, UUID primary keys.
-* **Row Level Security (RLS):** Kernel-level data isolation enforced via PostgreSQL RLS policies checking `app.current_tenant_id` session settings. The column is Prisma's `"tenantId"`, so every policy quotes that name and casts the session value to `uuid`.
+* **PostgreSQL 17:** Strict transactional compliance, indexed foreign keys, UUID primary keys. Local Docker runs `postgres:17-alpine`.
+* **Row Level Security (RLS):** Kernel-level data isolation enforced via PostgreSQL RLS policies checking `app.current_tenant_id` session settings. The column is Prisma's `"tenantId"`, so every policy quotes that name and casts the session value to `uuid`. Migrations keep using the `postgres` superuser in `DATABASE_URL`. The running application connects as a separate role that is not a superuser and does not have `BYPASSRLS`. A superuser ignores these policies, so the Docker `postgres` user cannot be the app login.
 
 #### UUID primary keys
 Every primary key is a PostgreSQL `uuid`, generated in the database:
@@ -49,8 +50,17 @@ createdAt DateTime @default(now()) @db.Timestamptz(3)
 
 `timestamptz` stores the instant in UTC. A trial ending at 18:00 in Berlin and 12:00 in New York is one value. `timestamp` without time zone stores the clock digits only, so those two offices would disagree about the moment. Shift start, shift end, attendance, and vacation dates use the same attribute.
 
+#### Exact money
+Salary is a decimal, not a float:
+
+```prisma
+baseSalary Decimal @db.Decimal(12, 2)
+```
+
+`12, 2` means twelve digits in total and two after the decimal point. `Float` cannot store `10.10` exactly. Payroll and contract amounts use `Decimal`.
+
 ### 5. DevOps, Infrastructure & Hosting (Native GCP)
-* **Local Development:** Docker Compose managing isolated PostgreSQL 15 instances.
+* **Local Development:** Docker Compose managing an isolated PostgreSQL 17 instance.
 * **Containerization:** Multi-stage production `Dockerfile` for NestJS backend.
 * **GCP Infrastructure:**
   * **Cloud Run:** Serverless, auto-scaling backend API runtime.
@@ -63,7 +73,7 @@ createdAt DateTime @default(now()) @db.Timestamptz(3)
 
 ## Consolidated Data Architecture (`prisma/schema.prisma`)
 
-The connection string lives in `prisma.config.ts`, not in this file. Primary keys and timestamps follow the UUID and `timestamptz` decisions in section 4. Prisma keeps the field name `tenantId` as the column name.
+The connection string lives in `prisma.config.ts`, not in this file. Primary keys, timestamps, and salary follow the UUID, `timestamptz`, and `Decimal` decisions in section 4. Prisma keeps the field name `tenantId` as the column name.
 
 ```prisma
 datasource db {
@@ -214,7 +224,7 @@ model Contract {
   employee   Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
   startDate  DateTime  @db.Timestamptz(3)
   endDate    DateTime? @db.Timestamptz(3)
-  baseSalary Float
+  baseSalary Decimal   @db.Decimal(12, 2)
   isActive   Boolean   @default(true)
   tenantId   String    @db.Uuid
 

@@ -75,6 +75,9 @@ Primary keys are PostgreSQL `uuid` columns with `gen_random_uuid()` as the datab
 ### 6. Timezone-aware timestamps
 Every `DateTime` is `timestamptz`. The database stores the instant in UTC, so 18:00 in Berlin and 12:00 in New York remain one moment. Shift, attendance, and vacation times depend on that.
 
+### 7. Exact money
+Salary is `Decimal @db.Decimal(12, 2)`: twelve digits in total, two after the decimal point. `Float` cannot store `10.10` exactly. Contract and payroll amounts use `Decimal`.
+
 ---
 
 ## 📊 Domain Core Data Types
