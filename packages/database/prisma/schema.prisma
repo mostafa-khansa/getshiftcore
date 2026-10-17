@@ -1,0 +1,198 @@
+datasource db {
+  provider = "postgresql"
+}
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+enum Role {
+  TENANT_ADMIN
+  MANAGER
+  EMPLOYEE
+}
+
+enum SubscriptionPlan {
+  FREE_TRIAL
+  MONTHLY
+  YEARLY
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PAST_DUE
+  CANCELED
+}
+
+enum RequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELED
+}
+
+enum AttendanceStatus {
+  PRESENT
+  LATE
+  HALF_DAY
+  REMOTE
+  ON_LEAVE
+}
+
+enum PunchType {
+  IN
+  OUT
+  BREAK_START
+  BREAK_END
+}
+
+enum PunchSource {
+  BIOMETRIC_FACE
+  BIOMETRIC_FINGERPRINT
+  WEB_DASHBOARD
+  MOBILE_APP
+}
+
+model Tenant {
+    id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+    name String @unique
+    plan SubscriptionPlan @default(FREE_TRIAL)
+    status SubscriptionStatus @default(ACTIVE)
+    trialEndsAt DateTime? @db.Timestamptz(3)
+    users User[]
+    invitations Invitation[]
+    departments Department[]
+    employees Employee[]
+    createdAt        DateTime           @default(now()) @db.Timestamptz(3)
+    updatedAt        DateTime           @updatedAt @db.Timestamptz(3)
+}
+
+model User {
+    id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+    email String @unique
+    passwordHash String
+    role Role @default(EMPLOYEE)
+    tenantId String @db.Uuid
+    tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+    refreshTokens RefreshToken[]
+    employee Employee?
+    createdAt        DateTime           @default(now()) @db.Timestamptz(3)
+    updatedAt        DateTime           @updatedAt @db.Timestamptz(3)
+
+    @@index([tenantId])
+}
+
+model RefreshToken {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tokenHash String
+  userId    String   @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([userId])
+}
+
+model Invitation {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email     String
+  role      Role     @default(EMPLOYEE)
+  token     String   @unique
+  expiresAt DateTime @db.Timestamptz(3)
+  tenantId  String   @db.Uuid
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([tenantId])
+}
+
+model Department {
+  id        String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name      String
+  tenantId  String     @db.Uuid
+  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  employees Employee[]
+  createdAt DateTime   @default(now()) @db.Timestamptz(3)
+
+  @@index([tenantId])
+}
+
+model Employee {
+  id           String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  firstName    String
+  lastName     String
+  email        String             @unique
+  userId       String?            @unique @db.Uuid
+  user         User?              @relation(fields: [userId], references: [id], onDelete: SetNull)
+  departmentId String             @db.Uuid
+  department   Department         @relation(fields: [departmentId], references: [id])
+  tenantId     String             @db.Uuid
+  tenant       Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  contracts    Contract[]
+  attendances  AttendanceRecord[]
+  vacations    VacationRequest[]
+  timePunches  TimePunch[]
+  createdAt    DateTime           @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime           @updatedAt @db.Timestamptz(3)
+
+  @@index([tenantId])
+  @@index([departmentId])
+}
+
+model Contract {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employeeId String    @db.Uuid
+  employee   Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  startDate  DateTime  @db.Timestamptz(3)
+  endDate    DateTime? @db.Timestamptz(3)
+  baseSalary Decimal @db.Decimal(12,2)
+  isActive   Boolean   @default(true)
+  tenantId   String    @db.Uuid
+
+  @@index([employeeId])
+  @@index([tenantId])
+}
+
+model AttendanceRecord {
+  id         String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employeeId String           @db.Uuid
+  employee   Employee         @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  checkIn    DateTime         @db.Timestamptz(3)
+  checkOut   DateTime?        @db.Timestamptz(3)
+  status     AttendanceStatus @default(PRESENT)
+  tenantId   String           @db.Uuid
+
+  @@index([employeeId])
+  @@index([tenantId])
+}
+
+model VacationRequest {
+  id         String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employeeId String        @db.Uuid
+  employee   Employee      @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  startDate  DateTime      @db.Timestamptz(3)
+  endDate    DateTime      @db.Timestamptz(3)
+  status     RequestStatus @default(PENDING)
+  approverId String?       @db.Uuid
+  tenantId   String        @db.Uuid
+  createdAt  DateTime      @default(now()) @db.Timestamptz(3)
+
+  @@index([employeeId])
+  @@index([tenantId])
+}
+
+model TimePunch {
+  id         String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employeeId String      @db.Uuid
+  employee   Employee    @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  timestamp  DateTime    @default(now()) @db.Timestamptz(3)
+  type       PunchType
+  source     PunchSource @default(BIOMETRIC_FACE)
+  deviceId   String?
+  tenantId   String      @db.Uuid
+
+  @@index([employeeId])
+  @@index([tenantId])
+  @@index([deviceId])
+}
