@@ -1,104 +1,247 @@
-# Production-Grade TypeScript Monorepo Setup Guide
+# TypeScript Monorepo Setup Guide
 
-This guide details the exact step-by-step process for initializing, configuring, and verifying a multi-package TypeScript monorepo architecture using `pnpm` workspaces.
+This guide is for someone setting up the GetShiftCore workspace for the first time. Follow it from top to bottom. Each step ends with a check. Do not start the next step until that check passes.
+
+You will end with:
+
+* a pnpm workspace that looks for packages in `apps/*` and `packages/*`
+* TypeScript 7 installed at the repo root
+* a root `tsconfig.json` that every package extends
+* `@getshiftcore/shared-types` building to `packages/shared-types/dist/`
+
+The finished files in this repo are the answer key: `package.json`, `pnpm-workspace.yaml`, `tsconfig.json`, `.gitignore`, and everything under `packages/shared-types/`.
+
+Run every command in this guide from the repo root.
+
+This folder is already a git repository. Leave it as it is.
+
+The database package is a later guide: `docs/prisma_setup_guide.md`. Finish this one first.
 
 ---
 
-## Architecture Overview
+## Words used in this guide
 
-* **Workspace Manager:** `pnpm`
-* **Language:** TypeScript (Strict ESM Output)
-* **Directory Layout:**
-  * `apps/*`: Application entrypoints (e.g., NestJS API, React Frontend)
-  * `packages/*`: Shared modules, configuration, and types
+| Word | Meaning |
+| :--- | :--- |
+| **Workspace** | The repo root plus every package `pnpm-workspace.yaml` lists. One `pnpm install`, one `pnpm-lock.yaml`. |
+| **Package** | One folder with its own `package.json`. The package in this guide is `packages/shared-types`. In PHP that is one folder with its own `composer.json`. |
+| **extends** | A `tsconfig.json` that loads another config, then overrides a few options. |
+| **filter** | `pnpm --filter <name>` runs a script in one package. The name must match that package's `"name"` field. |
+| **ESM** | ECMAScript modules: `import` and `export`. `"type": "module"` in `package.json` turns a package into ESM. |
 
 ---
 
-## Phase 1: Root Project Initialization
+## Step 1: Check Node and pnpm
 
-### 1. Initialize Git and Core Environment
-From your project root directory:
+From the repo root:
 
 ```bash
-git init
+node -v
+pnpm -v
 ```
 
-Create a `.gitignore` file at the root:
+`node -v` prints `v20` or newer. `pnpm -v` prints `10.18.3`.
+
+If the shell says `pnpm` is not recognized, Node ships Corepack, which installs the pinned pnpm:
+
+```bash
+corepack enable
+corepack prepare pnpm@10.18.3 --activate
+pnpm -v
+```
+
+The last line must print `10.18.3`.
+
+---
+
+## Step 2: Ignore installed files and secrets
+
+Create `.gitignore` at the repo root:
 
 ```text
-# Node dependencies
 node_modules/
-.pnpm-store/
-
-# Build outputs
 dist/
-build/
-
-# Tooling & Environment
 .turbo/
 .env
-.env.local
-*.log
 ```
 
-### 2. Configure Monorepo Workspace
-Create `pnpm-workspace.yaml` at the root to instruct `pnpm` where to locate workspace packages using glob patterns:
+| Line | What it keeps out of git |
+| :--- | :--- |
+| `node_modules/` | Packages `pnpm install` downloads. |
+| `dist/` | JavaScript and `.d.ts` files that `tsc` writes. You build them again; you do not commit them. |
+| `.turbo/` | Cache folder for a task runner this repo does not use yet. |
+| `.env` | Local secrets, including the database URL from the Prisma guide. |
+
+Check: the file is those four lines.
+
+---
+
+## Step 3: Tell pnpm where the packages are
+
+Create `pnpm-workspace.yaml` at the repo root:
 
 ```yaml
 packages:
-  - 'apps/*'
-  - 'packages/*'
+  - "apps/*"
+  - "packages/*"
 ```
 
-### 3. Root `package.json` Initialization
-Initialize the root `package.json` for workspace-level scripts:
+Each line is a glob. `*` means one folder level.
+
+* `packages/*` matches `packages/shared-types`. After the Prisma guide it also matches `packages/database`.
+* `apps/*` is reserved for later apps. The `apps/` folder is not in this repo. pnpm accepts a glob that matches nothing.
+
+In Composer you would add one path repository per package. pnpm takes the globs instead.
+
+Check: the file sits next to where `package.json` will be, and both globs use double quotes, as in the file above.
+
+---
+
+## Step 4: Write the root `package.json`
+
+The root package is the workspace itself. Create `package.json`:
 
 ```json
 {
   "name": "getshiftcore-monorepo",
   "version": "1.0.0",
   "private": true,
+  "description": "",
+  "main": "index.js",
   "scripts": {
     "build:shared": "pnpm --filter @getshiftcore/shared-types build"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "packageManager": "pnpm@10.18.3"
+}
+```
+
+| Field | What it does |
+| :--- | :--- |
+| `"private": true` | The boolean `true`. Package managers refuse to publish a private package. The quoted text `"true"` is a string, and they do not treat a string as private. |
+| `"scripts"."build:shared"` | From the root, run the `build` script of the package named `@getshiftcore/shared-types`. |
+| `"packageManager"` | The pnpm version Corepack should use for this repo: `pnpm@10.18.3`. |
+| `description`, `main`, `keywords`, `author`, `license` | Written by `pnpm init`. The root has no `index.js`, and nothing imports the root package. Leave the fields in place so your file matches the repo. |
+
+`"devDependencies"` is missing on purpose. The next command adds it.
+
+Check: `"private"` is `true` without quotes, and `"packageManager"` is `"pnpm@10.18.3"`.
+
+---
+
+## Step 5: Install TypeScript at the root
+
+`packages/shared-types` does not list TypeScript. Its build script is `tsc`. That command is available because TypeScript is installed on the workspace root, and `pnpm run build:shared` starts there.
+
+From the repo root:
+
+```bash
+pnpm add -D typescript@7.0.2 -w
+```
+
+`-w` is the workspace root. `-D` saves a dev dependency. The same split in Composer is `composer require --dev` in the root package.
+
+pnpm writes `pnpm-lock.yaml` and adds this block to the root `package.json`:
+
+```json
+"devDependencies": {
+  "typescript": "^7.0.2"
+}
+```
+
+The caret is what `pnpm add` writes. The lockfile resolves it to `7.0.2`.
+
+The finished root `package.json` matches the repo:
+
+```json
+{
+  "name": "getshiftcore-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "build:shared": "pnpm --filter @getshiftcore/shared-types build"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "packageManager": "pnpm@10.18.3",
+  "devDependencies": {
+    "typescript": "^7.0.2"
   }
 }
 ```
 
+Check:
+
+```bash
+pnpm exec tsc --version
+```
+
+You want:
+
+```text
+Version 7.0.2
+```
+
 ---
 
-## Phase 2: Root TypeScript Baseline Configuration
+## Step 6: Write the root TypeScript baseline
 
-### 1. Root `tsconfig.json` Setup
-Create a root `tsconfig.json` to define enterprise-grade, strict type-checking defaults:
+Create `tsconfig.json` at the repo root. This file allows comments. Keep the two commented lines:
 
 ```json
 {
   "compilerOptions": {
+    // "rootDir": "./src",
+    // "outDir": "./dist",
     "module": "nodenext",
-    "moduleResolution": "nodenext",
     "target": "esnext",
-    "strict": true,
-    "skipLibCheck": true,
-    "verbatimModuleSyntax": true,
-    "isolatedModules": true,
-    "noUncheckedIndexedAccess": true,
-    "exactOptionalPropertyTypes": true,
+    "types": [],
     "sourceMap": true,
     "declaration": true,
     "declarationMap": true,
-    "moduleDetection": "force"
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "strict": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "noUncheckedSideEffectImports": true,
+    "moduleDetection": "force",
+    "skipLibCheck": true,
   }
 }
 ```
 
-> **Note:** App-specific flags (like `"jsx": "react-jsx"`) should be omitted at the root level and defined inside relevant application packages (e.g., `apps/web`).
+| Option | What it does |
+| :--- | :--- |
+| `// "rootDir"` and `// "outDir"` | Stay comments. This file is the baseline, and the root has no `src/` folder. Each package sets its own `rootDir` and `outDir`. A package that sets `rootDir` to the package folder emits `dist/src/index.js`, while its `package.json` points at `dist/index.js`. |
+| `"module": "nodenext"` | Emit ESM using Node's rules. That setting also selects NodeNext module resolution, so this file leaves `moduleResolution` unset. |
+| `"target": "esnext"` | Emit modern JavaScript. The runtime is Node 20 or newer. |
+| `"types": []` | An empty list means "include no `@types` packages automatically." A package that needs Node types adds `@types/node` itself. |
+| `"strict": true` | Turns on the strict type checks. |
+| `"verbatimModuleSyntax": true` | A type-only import stays type-only and is erased. A value import stays a value import. |
+| `"isolatedModules": true` | Each file must compile on its own, which is how a bundler compiles. |
+| `"noUncheckedIndexedAccess": true` | `items[0]` has type `T` or `undefined`. |
+| `"exactOptionalPropertyTypes": true` | An optional property may be omitted. Assigning `undefined` is a separate case. |
+| `"noUncheckedSideEffectImports": true` | A side-effect import such as `import 'dotenv/config'` must resolve to a real module. |
+| `"declaration"` and `"declarationMap"` | Write `.d.ts` files and a map so the editor can jump back to the `.ts` source. |
+| `"sourceMap": true` | Write `.js.map` next to the JavaScript. |
+| `"moduleDetection": "force"` | Treat every file as a module. |
+| `"skipLibCheck": true` | Skip typechecking `.d.ts` files inside `node_modules`. |
+
+There is no `"include"` here. Leave this file uncompiled on its own. Step 10 runs `tsc` with the package config from Step 8.
+
+Check: `rootDir` and `outDir` are still comments, `"types"` is `[]`, and the file has no `moduleResolution` line.
 
 ---
 
-## Phase 3: Building a Shared Types Package (`packages/shared-types`)
+## Step 7: Create the shared-types package
 
-### 1. Folder Hierarchy Setup
-Create the folder structure:
+Create this tree:
 
 ```text
 packages/
@@ -109,8 +252,7 @@ packages/
     └── tsconfig.json
 ```
 
-### 2. Local Package Manifest (`packages/shared-types/package.json`)
-Configure the package as an ES Module (`"type": "module"`):
+`index.ts` and `tsconfig.json` are the next two steps. Write `packages/shared-types/package.json` now:
 
 ```json
 {
@@ -126,22 +268,69 @@ Configure the package as an ES Module (`"type": "module"`):
 }
 ```
 
-### 3. Local TypeScript Config (`packages/shared-types/tsconfig.json`)
-Extend the root baseline and define source/output paths:
+| Field | What it does |
+| :--- | :--- |
+| `"name": "@getshiftcore/shared-types"` | The package name. `@getshiftcore` is the scope, the same job as a Composer vendor name. The root script's `--filter` value is this whole string. |
+| `"private": true` | Boolean `true`, same rule as the root. |
+| `"type": "module"` | This package is ESM. |
+| `"main"` | The JavaScript file `tsc` will write. Other packages load this at runtime. |
+| `"types"` | The declaration file editors and `tsc` read. |
+| `"build": "tsc"` | Compile using `packages/shared-types/tsconfig.json`. |
+
+This package lists no dependencies. It does not import React, Nest, or Prisma.
+
+From the repo root, register the new folder:
+
+```bash
+pnpm install
+```
+
+Check:
+
+```bash
+pnpm list -r --depth -1
+```
+
+The list includes a line like:
+
+```text
+@getshiftcore/shared-types@1.0.0 C:\Users\PC\Documents\getshiftcore\packages\shared-types (PRIVATE)
+```
+
+Your disk path will differ. The name `@getshiftcore/shared-types` and `(PRIVATE)` are the part that matters. If `packages/database` already exists, `@getshiftcore/database` is listed too.
+
+---
+
+## Step 8: Extend the baseline from the package
+
+Create `packages/shared-types/tsconfig.json`:
 
 ```json
 {
   "extends": "../../tsconfig.json",
   "compilerOptions": {
     "rootDir": "./src",
-    "outDir": "./dist"
+    "outDir": "./dist",
   },
   "include": ["src/**/*"]
 }
 ```
 
-### 4. Code Implementation (`packages/shared-types/src/index.ts`)
-Write core business domain string enums:
+`extends` loads every option from the root file. The three settings below replace only what this package needs.
+
+* `"rootDir": "./src"` — `src/index.ts` is the top of the output tree, so it becomes `dist/index.js`.
+* `"outDir": "./dist"` — the folder `tsc` writes into. `"main"` in the package manifest is `dist/index.js`.
+* `"include": ["src/**/*"]` — compile files under `src/` only.
+
+If `rootDir` is the package folder instead of `./src`, `tsc` writes `dist/src/index.js`. The manifest still points at `dist/index.js`, so the built file and the path disagree.
+
+Check: `extends` is `../../tsconfig.json`, `rootDir` is `./src`, `outDir` is `./dist`, and `include` is `src/**/*`.
+
+---
+
+## Step 9: Write the domain enums
+
+Create `packages/shared-types/src/index.ts`:
 
 ```typescript
 export enum Role {
@@ -178,18 +367,71 @@ export enum AttendanceStatus {
 }
 ```
 
+Each enum is a string enum. The value on the wire and in the database is the word `TENANT_ADMIN`. A number enum would store `0`, `1`, `2`.
+
+In PHP the same idea is a backed enum:
+
+```php
+enum Role: string
+{
+    case TENANT_ADMIN = 'TENANT_ADMIN';
+    case MANAGER = 'MANAGER';
+    case EMPLOYEE = 'EMPLOYEE';
+}
+```
+
+Prisma keeps a second copy of these words in `schema.prisma`. Prisma cannot import this TypeScript file. The words in both places stay identical. In the Prisma file you will write `TENANT_ADMIN` with no `= 'TENANT_ADMIN'`, because that file is not TypeScript. That is Step 6 of `docs/prisma_setup_guide.md`.
+
+Check: the file exports `Role`, `SubscriptionPlan`, `SubscriptionStatus`, `RequestStatus`, and `AttendanceStatus`, and every member is assigned its own name as a string.
+
 ---
 
-## Phase 4: Build Pipeline Verification
+## Step 10: Build the package
 
-Execute the filtered workspace build script from the monorepo root:
+From the repo root:
 
 ```bash
 pnpm run build:shared
 ```
 
-### Expected Output
-Upon successful compilation:
-1. `tsc` processes `packages/shared-types/src/index.ts`.
-2. A `dist/` directory is created inside `packages/shared-types/`.
-3. Compiled JavaScript (`index.js`) and TypeScript declaration files (`index.d.ts`, `index.d.ts.map`) are generated without type-checking or syntax errors.
+That runs the root script, which runs `tsc` inside `packages/shared-types`. You want `tsc` to finish with no error:
+
+```text
+> @getshiftcore/shared-types@1.0.0 build
+> tsc
+```
+
+Then `packages/shared-types/dist/` contains four files:
+
+| File | What it is |
+| :--- | :--- |
+| `index.js` | The JavaScript. Open it and find `Role["TENANT_ADMIN"] = "TENANT_ADMIN"`. |
+| `index.js.map` | Maps that JavaScript back to `src/index.ts`. |
+| `index.d.ts` | The types other packages import. |
+| `index.d.ts.map` | Maps those declarations back to `src/index.ts`. |
+
+`dist/` is listed in `.gitignore`. Leave it uncommitted.
+
+If the build fails, read the first error only. Fix that line. Run the command again.
+
+| What you see | Fix |
+| :--- | :--- |
+| `tsc` is not recognized, or `command not found` | From the repo root run `pnpm add -D typescript@7.0.2 -w`, then `pnpm run build:shared` again. |
+| `No projects matched the filters` | The filter string must be `@getshiftcore/shared-types`, the same text as `"name"` in `packages/shared-types/package.json`. |
+| `"private"` is the quoted string `"true"` | Change it to `"private": true` with no quotes around `true`, in the root and in `packages/shared-types`. |
+
+---
+
+## What you do not change
+
+* Leave `rootDir` and `outDir` commented in the root `tsconfig.json`.
+* Leave `moduleResolution` unset. `"module": "nodenext"` already selects it.
+* Keep `"types": []` in the root config.
+* Keep `apps/*` in `pnpm-workspace.yaml` while `apps/` does not exist yet.
+* Keep React, Nest, and Prisma out of `packages/shared-types`.
+
+---
+
+## Next
+
+The workspace is ready for the database package. Follow `docs/prisma_setup_guide.md` from the top. Run those commands from `packages/database`.
